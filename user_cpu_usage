@@ -1,0 +1,19 @@
+#!/bin/bash
+  
+# Get the total number of logical CPUs
+total_cpus=$(nproc)
+
+# Calculate user-wise CPU usage and sort by total CPU usage
+printf "%-15s %-10s %-15s\n" "User" "CPU%" "RelativeCPU%"
+printf "%-15s %-10s %-15s\n" "---------------" "----------" "---------------"
+ps -eo user,%cpu --sort=-%cpu | awk -v total_cpus=$total_cpus '
+{
+    arr[$1] += $2
+} 
+END {
+    for (user in arr) {
+        relative_cpu = (arr[user] / (total_cpus * 100)) * 100
+        printf "%-15s %-10.2f %-15.2f\n", user, arr[user], relative_cpu
+    }
+}' | sort -k2,2nr
+

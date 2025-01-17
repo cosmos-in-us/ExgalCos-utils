@@ -1,0 +1,65 @@
+#!/bin/bash
+
+# Find all wtmp files 
+wtmp_files=$(ls /var/log/wtmp-* | sort)
+wtmp=$(ls /var/log/wtmp)
+
+# Merge all wtmp files
+merged_file="wtmp_merged"
+cat $wtmp_files $wtmp > $merged_file
+echo "Merged wtmp files into: $merged_file"
+
+# Calculate the difference in days between oldest_date and current_date 
+oldest_date=$(last -f $merged_file | tail -n 1 | awk '{print $3, $4, $5, $6, $7}')
+oldest_date_parsed=$(date -d "$oldest_date" +%Y-%m-%d)
+current_date=$(date +%Y-%m-%d)
+days_difference=$(( ($(date -d "$current_date" +%s) - $(date -d "$oldest_date_parsed" +%s)) / 24 / 3600))
+last -f $merged_file | tail -n 1
+echo "Oldest Date: $oldest_date_parsed"
+echo "Current Date: $current_date"
+echo "Days Difference: $days_difference"
+
+# Output file
+output_file="user_login.csv"
+echo "User,LoginCount,LastLogin" > $output_file
+
+# Generate user summary
+last -w -f $merged_file | awk '{print $1, $5, $6, $7}' | sort -k1,1 -k2,2M -k3,3n -k4,4r > temp_last.log
+
+# Count logins per user and find the most recent login
+for user in $(awk '{print $1}' temp_last.log | sort | uniq); do
+    if [ "$user" == "$merged_file" ]; then
+        # Skip the user if its name matches the merged file
+        continue
+    fi
+    login_count=$(grep -c "$user" temp_last.log)
+    last_login=$(grep "$user" temp_last.log | tail -n 1 | awk '{print $2, $3, $4}')
+    echo "$user,$login_count,$last_login" >> user_login_unsorted.csv
+done
+
+
+# Alias for listing users with UID >= 1000
+userlist=$(awk -F: '{if ($3 >= 1000) print $1}' /etc/passwd | sort)
+
+# Add users from userlist with no logins
+for user in $userlist; do
+    if ! grep -q "$user," user_login_unsorted.csv; then
+        echo "$user,0,N/A" >> user_login_unsorted.csv
+    fi
+done
+
+# Sort the output by login count in descending order and save to final output file
+#sort -t',' -k2,2nr user_login_unsorted.csv >> $output_file
+printf "%-15s %-10s %-20s\n" "User" "LoginCount" "LastLogin" > $output_file
+sort -t',' -k2,2nr user_login_unsorted.csv | while IFS=, read -r user count last_login; do
+    printf "%-15s %-10s %-20s\n" "$user" "$count" "$last_login" >> $output_file
+done
+
+# Remove temporary files
+rm $merged_file
+rm temp_last.log
+rm user_login_unsorted.csv
+
+# Print completion message
+echo "Summary saved to $output_file"
+
